@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"math"
 	"net/http"
 	"time"
 
@@ -466,18 +467,15 @@ func (h *Handler) checkGeofences(familyID, userID string, lat, lon float64) {
 }
 
 func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	const earthRadius = 6371000.0
-	const pi = 3.14159265358979323846
+	const earthRadius = 6371000.0 // metros
 
-	dLat := (lat2 - lat1) * pi / 180
-	dLon := (lon2 - lon1) * pi / 180
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLon := (lon2 - lon1) * math.Pi / 180
 
-	a := sinSquared(dLat/2) + cosD(lat1)*cosD(lat2)*sinSquared(dLon/2)
-	c := 2 * atan2Sqrt(a)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 
 	return earthRadius * c
 }
-
-func sinSquared(x float64) float64 { return x * x }
-func cosD(deg float64) float64     { return 1 - deg*deg/2 } // aproximação simples
-func atan2Sqrt(a float64) float64  { return a }             // usar math.Atan2 em produção
