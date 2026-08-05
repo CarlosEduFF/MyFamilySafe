@@ -1,38 +1,14 @@
-# Build stage
-FROM golang:1.22-alpine AS builder
+FROM python:3.12-slim
 
 WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-# Copy dependency files
-COPY go.mod ./
-# Note: go.sum will be copied if it exists, otherwise this will skip it
-COPY go.sum* ./
-RUN go mod download
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir .
 
-# Copy the source code
-COPY . .
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
 
-# Build the application
-# We use -ldflags="-s -w" to reduce binary size
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o server main.go
-
-# Final stage
-FROM alpine:latest
-
-# Add certificates for HTTPS requests (e.g. to Supabase)
-RUN apk --no-cache add ca-certificates tzdata
-
-WORKDIR /root/
-
-# Copy the binary from the builder stage
-COPY --from=builder /app/server .
-
-# Expose the default port
 EXPOSE 8080
-
-# Environment variables with defaults
-ENV PORT=8080
-ENV GIN_MODE=release
-
-# Start the application
-CMD ["./server"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
