@@ -1,9 +1,17 @@
+import asyncio
 import os
+import sys
 import uuid
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+
+if sys.platform == "win32":
+    # asyncpg fecha conexões de forma incompatível com o ProactorEventLoop
+    # padrão do Windows (AttributeError no teardown). O SelectorEventLoop não
+    # tem esse problema.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 os.environ.setdefault("DB_HOST", "localhost")
 os.environ.setdefault("DB_PORT", "5432")
@@ -20,7 +28,13 @@ from app.main import app  # noqa: E402
 
 @pytest_asyncio.fixture(autouse=True)
 async def _reset_schema():
+    # engine é criado uma vez no import de app.database, preso ao event loop
+    # do primeiro teste que o usa. pytest-asyncio cria um loop novo por
+    # função de teste, então descartamos o pool a cada teste para forçar
+    # novas conexões associadas ao loop atual.
+    await engine.dispose()
     async with engine.begin() as conn:
+        await conn.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
