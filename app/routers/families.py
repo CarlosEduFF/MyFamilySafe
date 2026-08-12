@@ -38,7 +38,7 @@ async def join_family(body: JoinRequest, user: User = Depends(get_current_user),
     """Correção #1: substitui POST /api/families/:id/invite, que ignorava o :id
     e cujo path o app chamava errado."""
     result = await db.execute(
-        select(Family.id).where(Family.invite_code == body.invite_code)
+        select(Family.id).where(Family.invite_code == body.invite_code.strip().lower())
     )
     family_id = result.scalar_one_or_none()
     if family_id is None:
