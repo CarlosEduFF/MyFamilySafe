@@ -71,6 +71,16 @@ class RoleUpdate(BaseModel):
     role: Literal["admin", "member"]
 
 
+class LeaveRequestOut(BaseModel):
+    model_config = ORM
+    id: uuid.UUID
+    family_id: uuid.UUID
+    user_id: uuid.UUID
+    status: str
+    created_at: datetime
+    user: UserOut | None = None
+
+
 class LocationOut(BaseModel):
     model_config = ORM
     id: uuid.UUID

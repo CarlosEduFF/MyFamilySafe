@@ -56,6 +56,21 @@ class FamilyMember(Base):
     joined_at: Mapped[datetime] = NOW()
 
 
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+    __table_args__ = (UniqueConstraint("family_id", "user_id", "status"),)
+
+    id: Mapped[uuid.UUID] = UUID_PK()
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("families.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    created_at: Mapped[datetime] = NOW()
+
+
 class Location(Base):
     __tablename__ = "locations"
     __table_args__ = (

@@ -7,9 +7,10 @@ from sqlalchemy.orm import aliased
 
 from app.database import get_db
 from app.deps import get_current_user, is_family_member, require_family_member
-from app.models import Family, FamilyMember, User
+from app.models import Family, FamilyMember, LeaveRequest, User
 from app.schemas import (
-    FamilyCreate, FamilyMemberOut, FamilyOut, JoinRequest, RoleUpdate, UserOut,
+    FamilyCreate, FamilyMemberOut, FamilyOut, JoinRequest, LeaveRequestOut,
+    RoleUpdate, UserOut,
 )
 from app.utils import generate_invite_code
 
@@ -110,15 +111,107 @@ async def update_member_role(id: uuid.UUID, user_id: uuid.UUID, body: RoleUpdate
 async def remove_member(id: uuid.UUID, user_id: uuid.UUID,
                         user: User = Depends(get_current_user),
                         db: AsyncSession = Depends(get_db)):
-    # Só o dono ou o próprio membro pode remover (handler.go:237).
+    # Só o dono pode expulsar um membro diretamente; o próprio membro
+    # precisa solicitar saída via /leave-requests, aprovada pelo dono.
     family = await db.get(Family, id)
     if family is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "family not found")
-    if user.id != family.owner_id and user.id != user_id:
+    if user.id != family.owner_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "not authorized")
+    if user_id == family.owner_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot remove the owner")
 
     member = await db.get(FamilyMember, {"family_id": id, "user_id": user_id})
     if member is not None:
         await db.delete(member)
         await db.commit()
     return {"message": "member removed"}
+
+
+@router.post("/{id}/leave-requests", response_model=LeaveRequestOut,
+            status_code=status.HTTP_201_CREATED)
+async def request_leave(id: uuid.UUID, user: User = Depends(get_current_user),
+                        db: AsyncSession = Depends(get_db)):
+    family = await db.get(Family, id)
+    if family is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "family not found")
+    if user.id == family.owner_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "the owner cannot leave the family")
+    if not await is_family_member(db, id, user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not a member of this family")
+
+    existing = await db.execute(
+        select(LeaveRequest).where(
+            LeaveRequest.family_id == id, LeaveRequest.user_id == user.id,
+            LeaveRequest.status == "pending",
+        )
+    )
+    pending = existing.scalar_one_or_none()
+    if pending is not None:
+        return LeaveRequestOut(
+            id=pending.id, family_id=pending.family_id, user_id=pending.user_id,
+            status=pending.status, created_at=pending.created_at,
+            user=UserOut.model_validate(user),
+        )
+
+    request = LeaveRequest(family_id=id, user_id=user.id)
+    db.add(request)
+    await db.commit()
+    await db.refresh(request)
+    return LeaveRequestOut(
+        id=request.id, family_id=request.family_id, user_id=request.user_id,
+        status=request.status, created_at=request.created_at,
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.get("/{id}/leave-requests", response_model=list[LeaveRequestOut])
+async def list_leave_requests(id: uuid.UUID, user: User = Depends(get_current_user),
+                              db: AsyncSession = Depends(get_db)):
+    family = await db.get(Family, id)
+    if family is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "family not found")
+    if user.id != family.owner_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not authorized")
+
+    result = await db.execute(
+        select(LeaveRequest, User)
+        .join(User, User.id == LeaveRequest.user_id)
+        .where(LeaveRequest.family_id == id, LeaveRequest.status == "pending")
+        .order_by(LeaveRequest.created_at.asc())
+    )
+    return [
+        LeaveRequestOut(
+            id=lr.id, family_id=lr.family_id, user_id=lr.user_id,
+            status=lr.status, created_at=lr.created_at, user=UserOut.model_validate(u),
+        )
+        for lr, u in result.all()
+    ]
+
+
+@router.put("/{id}/leave-requests/{request_id}")
+async def resolve_leave_request(id: uuid.UUID, request_id: uuid.UUID,
+                                approve: bool,
+                                user: User = Depends(get_current_user),
+                                db: AsyncSession = Depends(get_db)):
+    family = await db.get(Family, id)
+    if family is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "family not found")
+    if user.id != family.owner_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not authorized")
+
+    request = await db.get(LeaveRequest, request_id)
+    if request is None or request.family_id != id or request.status != "pending":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "leave request not found")
+
+    if approve:
+        request.status = "approved"
+        member = await db.get(FamilyMember, {"family_id": id, "user_id": request.user_id})
+        if member is not None:
+            await db.delete(member)
+    else:
+        request.status = "rejected"
+
+    await db.commit()
+    return {"message": "resolved"}

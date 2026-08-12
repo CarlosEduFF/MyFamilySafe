@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import User
-from app.schemas import UpdateMeRequest, UserOut
+from app.models import Family, FamilyMember, User
+from app.schemas import FamilyOut, UpdateMeRequest, UserOut
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -13,6 +13,18 @@ router = APIRouter(prefix="/api/me", tags=["me"])
 @router.get("", response_model=UserOut)
 async def get_me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.get("/families", response_model=list[FamilyOut])
+async def get_my_families(user: User = Depends(get_current_user),
+                          db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Family)
+        .join(FamilyMember, FamilyMember.family_id == Family.id)
+        .where(FamilyMember.user_id == user.id)
+        .order_by(FamilyMember.joined_at.asc())
+    )
+    return result.scalars().all()
 
 
 @router.put("", response_model=UserOut)
