@@ -121,6 +121,15 @@ class TrustedNetworkCreate(BaseModel):
     label: str = ""
 
 
+class TrustedNetworkOut(BaseModel):
+    model_config = ORM
+    id: uuid.UUID
+    family_id: uuid.UUID
+    ssid: str
+    bssid: str
+    label: str
+
+
 class GeofenceCreate(BaseModel):
     name: str
     latitude: float

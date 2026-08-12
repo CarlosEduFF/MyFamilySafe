@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user, require_family_member
 from app.models import TrustedNetwork, User, WifiStatus
-from app.schemas import TrustedNetworkCreate, WifiOut, WifiUpdate
+from app.schemas import TrustedNetworkCreate, TrustedNetworkOut, WifiOut, WifiUpdate
 from services.wifi import WifiService
 
 router = APIRouter(prefix="/api", tags=["wifi"])
@@ -67,6 +67,15 @@ async def get_family_wifi(family_id: uuid.UUID = Depends(require_family_member),
         )
         for w, name, avatar in result.all()
     ]
+
+
+@router.get("/families/{id}/wifi/trusted", response_model=list[TrustedNetworkOut])
+async def get_trusted_networks(family_id: uuid.UUID = Depends(require_family_member),
+                               db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(TrustedNetwork).where(TrustedNetwork.family_id == family_id)
+    )
+    return result.scalars().all()
 
 
 @router.post("/families/{id}/wifi/trusted", status_code=201)
