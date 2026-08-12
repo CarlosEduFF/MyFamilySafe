@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -64,6 +65,10 @@ class FamilyMemberOut(BaseModel):
     role: str
     joined_at: datetime
     user: UserOut | None = None
+
+
+class RoleUpdate(BaseModel):
+    role: Literal["admin", "member"]
 
 
 class LocationOut(BaseModel):

@@ -9,7 +9,7 @@ from app.database import get_db
 from app.deps import get_current_user, is_family_member, require_family_member
 from app.models import Family, FamilyMember, User
 from app.schemas import (
-    FamilyCreate, FamilyMemberOut, FamilyOut, JoinRequest, UserOut,
+    FamilyCreate, FamilyMemberOut, FamilyOut, JoinRequest, RoleUpdate, UserOut,
 )
 from app.utils import generate_invite_code
 
@@ -77,6 +77,33 @@ async def get_members(family_id: uuid.UUID = Depends(require_family_member),
         )
         for fm, u in result.all()
     ]
+
+
+@router.put("/{id}/members/{user_id}/role", response_model=FamilyMemberOut)
+async def update_member_role(id: uuid.UUID, user_id: uuid.UUID, body: RoleUpdate,
+                             user: User = Depends(get_current_user),
+                             db: AsyncSession = Depends(get_db)):
+    family = await db.get(Family, id)
+    if family is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "family not found")
+    if user.id != family.owner_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not authorized")
+    if user_id == family.owner_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "cannot change the owner's role")
+
+    member = await db.get(FamilyMember, {"family_id": id, "user_id": user_id})
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "member not found")
+
+    member.role = body.role
+    await db.commit()
+    await db.refresh(member)
+    member_user = await db.get(User, user_id)
+    return FamilyMemberOut(
+        family_id=member.family_id, user_id=member.user_id, role=member.role,
+        joined_at=member.joined_at, user=UserOut.model_validate(member_user),
+    )
 
 
 @router.delete("/{id}/members/{user_id}")
